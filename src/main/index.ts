@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, session } from 'electron' // 👈 关键：引入 session
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -7,7 +7,7 @@ import * as path from 'path'
 
 // 定义文件节点结构
 interface FileNode {
-  id: string; // 绝对路径
+  id: string;
   name: string;
   type: 'file' | 'folder';
   children?: FileNode[];
@@ -32,11 +32,9 @@ async function readDirectory(dirPath: string): Promise<FileNode | null> {
         readDirectory(path.join(dirPath, childName))
       )
 
-      // 等待所有子节点读取完毕，并过滤掉 null
       const children = (await Promise.all(childrenPromises))
         .filter((node): node is FileNode => node !== null)
 
-      // 排序：文件夹在前，文件在后
       children.sort((a, b) => {
         if (a.type === 'folder' && b.type === 'file') return -1
         if (a.type === 'file' && b.type === 'folder') return 1
@@ -46,9 +44,7 @@ async function readDirectory(dirPath: string): Promise<FileNode | null> {
       return { id, name, type: 'folder', children }
 
     } else if (stats.isFile()) {
-      // 只显示常见代码文件
       const ext = path.extname(name).toLowerCase()
-      // 如果你想支持更多格式，在这里添加
       if (['.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.json', '.md', '.py', '.java', '.go', '.rs'].includes(ext)) {
         return { id, name, type: 'file' }
       }
@@ -60,26 +56,23 @@ async function readDirectory(dirPath: string): Promise<FileNode | null> {
 }
 
 function setupIpcHandlers() {
-  // 1. 打开文件夹对话框
   ipcMain.handle('dialog:openFolder', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) return null
-
     const { canceled, filePaths } = await dialog.showOpenDialog(window, {
       properties: ['openDirectory']
     })
-
     if (canceled || filePaths.length === 0) return null
-
-    // 开始读取
     return await readDirectory(filePaths[0])
   })
 
-  // 2. 读取文件内容
+  // 2. 读取文件内容 (带日志，方便你调试)
   ipcMain.handle('fs:readFile', async (_, filePath) => {
+    console.log(`正在读取文件: ${filePath}`) // 👈 调试点
     try {
       return await fs.readFile(filePath, 'utf-8')
     } catch (e) {
+      console.error(`读取失败: ${e}`)
       return `Error reading file: ${e}`
     }
   })
@@ -97,6 +90,19 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  // === 🚨 核心修复：允许 Monaco Editor 下载 CDN 资源 ===
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+  "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; img-src 'self' data:;"
+]
+      }
+    })
+  })
+  // =================================================
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -116,14 +122,11 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
-
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // !!! 必须在这里调用，注册 IPC !!!
   setupIpcHandlers()
-
   createWindow()
 
   app.on('activate', function () {

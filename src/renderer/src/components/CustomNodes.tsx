@@ -22,7 +22,7 @@ export const FolderNode = ({ data }: NodeProps) => {
   )
 }
 
-// === 2. 文件节点 (核心交互组件) ===
+// === 2. 文件节点 (核心交互组件 - 修复 nodrag 和 zIndex) ===
 export const FileNode = ({ data }: NodeProps) => {
   const [expanded, setExpanded] = useState(false)
   const [code, setCode] = useState('// Loading...')
@@ -46,18 +46,23 @@ export const FileNode = ({ data }: NodeProps) => {
   }
 
   return (
-    <div className="nodrag" style={{
-      border: expanded ? '2px solid #646cff' : '1px solid #777',
-      borderRadius: '8px',
-      background: '#1e1e1e',
-      color: '#ddd',
-      minWidth: expanded ? '600px' : '200px', // 展开变宽
-      transition: 'all 0.3s ease',
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)'
-    }}>
+    <div
+      // 🚨 修复点 1：移除 className="nodrag"，让用户可以拖动节点头部
+      style={{
+        border: expanded ? '2px solid #646cff' : '1px solid #777',
+        borderRadius: '8px',
+        background: '#1e1e1e',
+        color: '#ddd',
+        minWidth: expanded ? '600px' : '200px', // 展开变宽
+        transition: 'all 0.3s ease',
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+        // 🚨 修复点 2：动态 zIndex，确保展开的节点浮在顶部
+        zIndex: expanded ? 1000 : undefined
+      }}
+    >
       <Handle type="target" position={Position.Left} style={{ top: 20 }} />
 
-      {/* 头部标题栏 - 点击展开 */}
+      {/* 头部标题栏 - 点击展开。由于外层移除了 nodrag，这里可以拖动节点。 */}
       <div
         onClick={handleToggle}
         style={{
@@ -90,7 +95,8 @@ export const FileNode = ({ data }: NodeProps) => {
 
       {/* 展开区域：代码编辑器 + AI 按钮 */}
       {expanded && (
-        <div>
+        // 🚨 修复点 3：将 className="nodrag" 移到这里，阻止在编辑器内进行拖拽操作
+        <div className="nodrag">
           <div style={{ height: '400px', position: 'relative' }}>
              {loading ? (
                 <div style={{ padding: 20 }}>Reading file...</div>
