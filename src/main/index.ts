@@ -4,11 +4,11 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-// 1. 引入 OpenRouter 依赖
+// 引入 OpenRouter 依赖
 import OpenAI from 'openai'
 require('dotenv').config() // 用于加载 .env 文件
 
-// 定义文件节点结构
+// 定义文件节点结构 - 注意，这个结构也是前端发送给我们的结构
 interface FileNode {
   id: string;
   name: string;
@@ -69,29 +69,25 @@ function setupIpcHandlers() {
     }
   })
 
-  // === 2. 核心：AI 总结处理器 (使用 OpenRouter) ===
+  // === 文件总结处理器 (保持不变) ===
   ipcMain.handle('ai:summarize', async (_, codeContent) => {
     try {
       const apiKey = process.env.OPENROUTER_API_KEY
-
       if (!apiKey) {
         return "❌ 错误: 未在 .env 文件中配置 OPENROUTER_API_KEY。"
       }
 
       const openai = new OpenAI({
         apiKey: apiKey,
-        // 🚨 关键配置：指定 OpenRouter 的 Base URL
-        baseURL: "https://openrouter.ai/api/v1",
+        baseURL: "google/gemini-2.0-flash-exp:free",
       })
 
-      // 使用 OpenRouter 上的模型，例如 gpt-4o-mini 或 Llama
       const modelToUse = "openai/gpt-4o-mini"
-
       const systemPrompt = `
         你是一位资深架构师。请简要总结以下代码的核心逻辑。
         要求：
         1. 第一行用一句话概括功能。
-        2. 接着用 Bullet Points 列出 2-3 个关键技术点或逻辑流程。
+        2. 接着用 Bullet Points 列出 2-3 个关键技术点。
         3. 用中文回答。
       `
 
@@ -101,7 +97,7 @@ function setupIpcHandlers() {
           { role: "system", content: systemPrompt },
           { role: "user", content: `代码：\n${codeContent.substring(0, 8000)}` }
         ],
-        temperature: 0.1, // 降低温度，获取更稳定的总结
+        temperature: 0.1,
       })
 
       return response.choices[0].message.content || "总结失败。"
@@ -109,6 +105,48 @@ function setupIpcHandlers() {
     } catch (error) {
       console.error("AI Error:", error)
       return `AI 请求失败: ${error}`
+    }
+  })
+
+  // === 🚨 新增：文件夹总结处理器 (MapReduce Reduce 阶段) ===
+  ipcMain.handle('ai:summarizeFolder', async (_, folderStructure: string) => {
+    try {
+      const apiKey = process.env.OPENROUTER_API_KEY
+      if (!apiKey) {
+        return "❌ 错误: 未在 .env 文件中配置 OPENROUTER_API_KEY。"
+      }
+
+      const openai = new OpenAI({
+        apiKey: apiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+      })
+
+      const modelToUse = "openai/gpt-4o-mini"
+
+      // 针对文件夹总结的提示词
+      const systemPrompt = `
+        你是一位资深软件架构师。你正在分析一个项目模块的结构。
+        根据提供的文件和子文件夹的名称列表，请推断并总结这个模块的核心功能、职责和可能包含的逻辑流。
+        要求：
+        1. 第一行用一句话概括模块功能（作为标题）。
+        2. 接着用 Bullet Points 列出 2-3 个关键职责或组件。
+        3. 用中文回答。
+      `
+
+      const response = await openai.chat.completions.create({
+        model: modelToUse,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `模块结构：\n${folderStructure}` }
+        ],
+        temperature: 0.1,
+      })
+
+      return response.choices[0].message.content || "总结失败。"
+
+    } catch (error) {
+      console.error("AI Folder Summary Error:", error)
+      return `AI 文件夹总结请求失败: ${error}`
     }
   })
 }
@@ -123,7 +161,7 @@ function createWindow(): void {
     }
   })
 
-  // 恢复严格 CSP (离线化后不再需要 CDN 权限)
+  // 恢复严格 CSP
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
