@@ -4,8 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import OpenAI from 'openai' // 确保安装了 openai: npm install openai
-require('dotenv').config()  // 确保安装了 dotenv: npm install dotenv
+import OpenAI from 'openai'
+require('dotenv').config()
 
 // 定义文件节点结构
 interface FileNode {
@@ -15,7 +15,10 @@ interface FileNode {
   children?: FileNode[];
 }
 
-// 递归读取目录的函数
+// 硅基流动 Base URL (国内稳定服务商)
+const SILICONFLOW_API_BASE = "https://api.siliconflow.cn/v1";
+
+// 递归读取目录的函数 (保持不变)
 async function readDirectory(dirPath: string): Promise<FileNode | null> {
   const name = path.basename(dirPath)
   const id = dirPath
@@ -68,75 +71,92 @@ function setupIpcHandlers() {
     }
   })
 
-  // === 3. 文件原子分析处理器 (Gemini Fix 版) ===
+  // === 3. 文件原子分析处理器 (Level 3: 深度技术画像 + 清洗) ===
   ipcMain.handle('ai:summarize', async (_, codeContent) => {
     try {
       const apiKey = process.env.SILICONFLOW_API_KEY
-      if (!apiKey) return JSON.stringify({ overview: "❌ 错误: 未配置 .env Key", symbols: [] })
+      if (!apiKey) return JSON.stringify({ overview: "❌ 错误: 未配置 SILICONFLOW_API_KEY", symbols: [] })
 
       const openai = new OpenAI({
         apiKey: apiKey,
-        baseURL: "https://api.siliconflow.cn/v1",
-        // 🚨 关键修复：OpenRouter 免费模型必须带这两个 Header，否则报 Provider Error
-        defaultHeaders: {
-          "HTTP-Referer": "https://github.com/LogicHorizon/Desktop", // 任意 URL 均可
-          "X-Title": "Logic Horizon IDE", // 你的应用名
-        }
+        baseURL: SILICONFLOW_API_BASE,
       })
 
-      // 使用 Gemini 2.0 Flash 免费版
+      // Qwen Coder 免费模型
       const modelToUse = "Qwen/Qwen2.5-Coder-7B-Instruct"
 
+      // 🚨 深度 Prompt：提取用于上层架构分析的元数据
       const systemPrompt = `
-        你是一个代码分析引擎。请分析用户提供的代码，并输出严格的 JSON 格式。
+        你是一位资深架构师。请深度分析用户提供的代码，并提取关键的架构元数据。
+        请输出严格的纯 JSON 格式（不要Markdown标记）。
 
-        输出结构要求如下 (不要包含 Markdown 标记，只返回纯 JSON):
+        JSON 结构要求：
         {
-          "overview": "一句话概括文件功能，接着列出2个关键点。",
+          "overview": "一句话概括文件功能（用于UI展示，通俗易懂）。",
+          "technical_depth": "详细描述实现原理、关键算法或使用的设计模式（用于上层架构分析）。",
+          "exports": "列出该文件对外导出的核心能力或接口（简要列表字符串）。",
           "symbols": [
             {
-              "name": "函数或类名 (例如 processData)",
-              "type": "Function" 或 "Class" 或 "Interface",
-              "description": "简短的一句话中文描述，说明它的作用"
+              "name": "函数/类名",
+              "type": "Function/Class/Const",
+              "description": "技术性描述：输入什么，处理什么，输出什么。"
             }
           ]
         }
+
+        注意：
+        1. overview 给小白看，technical_depth 给CTO看。
+        2. 不要包含 markdown 代码块标记。
       `
 
       const response = await openai.chat.completions.create({
         model: modelToUse,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `代码内容：\n${codeContent.substring(0, 30000)}` } // Gemini 支持超长上下文
+          { role: "user", content: `代码内容:\n${codeContent.substring(0, 20000)}` }
         ],
         temperature: 0.1,
-        response_format: { type: "json_object" }
       })
 
-      return response.choices[0].message.content || "{}"
+      let content = response.choices[0].message.content || "{}";
+
+      // 🚨 核心修复：自动清洗 Markdown 代码块标记 (解决 JSON 解析失败)
+      content = content.replace(/^```json\s*/g, "").replace(/^```\s*/g, "").replace(/\s*```$/g, "").trim();
+
+      // 验证 JSON
+      try {
+        JSON.parse(content);
+      } catch (e) {
+        console.error("AI 返回了非 JSON 内容:", content);
+        return JSON.stringify({
+            overview: `AI 分析结果格式异常，无法解析。原始内容开头: ${content.substring(0, 50)}...`,
+            technical_depth: "解析失败",
+            exports: "无",
+            symbols: []
+        });
+      }
+
+      return content;
 
     } catch (error) {
       console.error("AI Error:", error)
-      return JSON.stringify({ overview: `AI 请求失败: ${error}`, symbols: [] })
+      // 返回结构化的错误信息，确保前端能解析
+      return JSON.stringify({ overview: `AI 请求失败: ${error.message}`, symbols: [] })
     }
   })
 
-  // === 4. 文件夹总结处理器 ===
+  // === 4. 文件夹总结处理器 (Level 2: 架构总结) ===
   ipcMain.handle('ai:summarizeFolder', async (_, folderStructure: string) => {
     try {
       const apiKey = process.env.SILICONFLOW_API_KEY
-      if (!apiKey) return "❌ 错误: 未配置 API Key。"
+      if (!apiKey) return "❌ 错误: 未配置 SILICONFLOW_API_KEY。"
 
       const openai = new OpenAI({
         apiKey: apiKey,
-        baseURL: "https://api.siliconflow.cn/v1",
-        // 🚨 同样加上 Headers
-        defaultHeaders: {
-          "HTTP-Referer": "https://github.com/LogicHorizon/Desktop",
-          "X-Title": "Logic Horizon IDE",
-        }
+        baseURL: SILICONFLOW_API_BASE,
       })
 
+      // 使用 GLM-4 免费模型，专注于架构推理
       const modelToUse = "THUDM/glm-4-9b-chat"
 
       const systemPrompt = `
