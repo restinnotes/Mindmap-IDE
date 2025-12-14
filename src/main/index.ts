@@ -82,7 +82,7 @@ function setupIpcHandlers() {
         baseURL: "google/gemini-2.0-flash-exp:free",
       })
 
-      const modelToUse = "openai/gpt-4o-mini"
+      const modelToUse = "google/gemini-2.0-flash-exp:free"
       const systemPrompt = `
         你是一位资深架构师。请简要总结以下代码的核心逻辑。
         要求：
@@ -121,7 +121,7 @@ function setupIpcHandlers() {
         baseURL: "https://openrouter.ai/api/v1",
       })
 
-      const modelToUse = "openai/gpt-4o-mini"
+      const modelToUse = "google/gemini-2.0-flash-exp:free"
 
       // 针对文件夹总结的提示词
       const systemPrompt = `
