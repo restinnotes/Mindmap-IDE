@@ -5,8 +5,8 @@ import Editor, { OnMount } from '@monaco-editor/react'
 // 定义 AI 返回的数据结构 (用于 Level 3 文件总结)
 interface AIAnalysisResult {
   overview: string;
-  technical_depth?: string; // 新增：技术深度
-  exports?: string;         // 新增：导出能力
+  technical_depth?: string; // 技术深度
+  exports?: string;         // 导出能力
   symbols: Array<{
     name: string;
     type: string;
@@ -14,32 +14,9 @@ interface AIAnalysisResult {
   }>;
 }
 
-// 定义辅助函数：递归构建文件夹结构字符串 (用于 Level 2 文件夹总结)
-const buildStructureString = (children, depth = 0) => {
-  let structure = '';
-  const indent = '  '.repeat(depth);
+// 🚨 注意：原来的 buildStructureString 函数已被删除，因为它不再用于 MapReduce 架构
 
-  if (!children || children.length === 0) {
-    return `${indent} (空)\n`;
-  }
-
-  children.forEach(child => {
-    // 理想情况下，这里应该从 FileNode.data.analysis 中提取 technical_depth 或 exports
-    // 由于 React Flow 节点数据更新复杂，此处暂时只用基础信息
-    const summaryText = child.summary ? ` - 职责: ${child.summary.split('\n')[0]}` : '';
-
-    if (child.type === 'file') {
-      structure += `${indent}📄 ${child.name}${summaryText}\n`;
-    } else if (child.type === 'folder') {
-      structure += `${indent}📁 ${child.name}/\n`;
-      structure += buildStructureString(child.children, depth + 1);
-    }
-  });
-  return structure;
-};
-
-
-// === 1. 文件夹节点 (Level 2: 架构总结) ===
+// === 1. 文件夹节点 (Level 2: Reduce 消费者) ===
 export const FolderNode = ({ data }: NodeProps) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -48,12 +25,11 @@ export const FolderNode = ({ data }: NodeProps) => {
     setAiLoading(true);
     setSummary(null);
 
-    const structureString = buildStructureString(data.children);
-
     try {
-      const result = await window.api.summarizeFolder(
-        `模块名称: ${data.label}\n\n文件结构:\n${structureString}`
-      );
+      // 🚨 关键：发送文件夹路径 (data.id 即是后端用于缓存和文件读取的路径 Key)
+      const folderPath = data.id;
+
+      const result = await window.api.summarizeFolder(folderPath);
       setSummary(result);
     } catch (error) {
       setSummary("AI 文件夹总结失败。");
@@ -64,43 +40,28 @@ export const FolderNode = ({ data }: NodeProps) => {
   return (
     <div style={{
       padding: '10px',
-      border: '2px solid #646cff',
-      borderRadius: '8px',
-      background: '#2b2b2b',
-      color: '#fff',
-      minWidth: '250px',
-      textAlign: 'left',
-      boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
+      border: '2px solid #646cff', borderRadius: '8px', background: '#2b2b2b', color: '#fff',
+      minWidth: '300px', textAlign: 'left', boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
     }}>
       <Handle type="target" position={Position.Left} style={{ background: '#777' }} />
 
-      <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '10px' }}>
-        📁 {data.label}
-      </div>
-
-      <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>
-        包含 {data.children ? data.children.length : 0} 个子项
-      </div>
+      <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '5px' }}>📁 {data.label}</div>
+      <div style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px' }}>包含 {data.children?.length || 0} 个子项</div>
 
       <div style={{ borderTop: '1px solid #444', paddingTop: '10px' }}>
-        <button
-          onClick={handleSummarize}
-          disabled={aiLoading}
-          style={{
+        <button onClick={handleSummarize} disabled={aiLoading} style={{
             background: aiLoading ? '#555' : 'linear-gradient(to right, #646cff, #9f5afd)',
-            color: 'white', border: 'none', padding: '6px 12px',
-            borderRadius: '4px', fontWeight: 'bold', cursor: aiLoading ? 'default' : 'pointer',
-            opacity: aiLoading ? 0.9 : 1
+            color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: aiLoading ? 'default' : 'pointer', width: '100%'
           }}>
-          {aiLoading ? '✨ Reducing...' : '✨ Summarize Folder'}
+          {aiLoading ? '✨ Reducing (Global Analysis)...' : '✨ Summarize Module'}
         </button>
       </div>
 
       {summary && (
         <div style={{
-          marginTop: '10px', padding: '10px', background: '#333',
-          borderRadius: '4px', fontSize: '13px', lineHeight: '1.6',
-          color: '#e0e0e0', borderLeft: '3px solid #9f5afd', whiteSpace: 'pre-wrap'
+          marginTop: '10px', padding: '10px', background: '#333', borderRadius: '4px',
+          fontSize: '13px', lineHeight: '1.6', color: '#e0e0e0', borderLeft: '3px solid #9f5afd',
+          whiteSpace: 'pre-wrap', maxHeight: '300px', overflowY: 'auto'
         }}>
           {summary}
         </div>
@@ -111,13 +72,13 @@ export const FolderNode = ({ data }: NodeProps) => {
   )
 }
 
-// === 2. 文件节点 (Level 3: 智能大纲实现) ===
+// === 2. 文件节点 (Level 3: Map 生产者) ===
 export const FileNode = ({ data }: NodeProps) => {
   const [expanded, setExpanded] = useState(false)
   const [code, setCode] = useState('// Loading...')
   const [loading, setLoading] = useState(false)
 
-  // AI 状态 (现在使用 analysis 存储 JSON 结构)
+  // AI 状态
   const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -125,11 +86,10 @@ export const FileNode = ({ data }: NodeProps) => {
   // Monaco Editor 实例引用 (用于控制滚动)
   const editorRef = useRef<any>(null);
 
-  const handleEditorDidMount: OnMount = (editor, monaco) => {
+  const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
   }
 
-  // 点击“大纲”跳转代码逻辑
   const jumpToSymbol = (symbolName: string) => {
     if (!editorRef.current) return;
     const editor = editorRef.current;
@@ -140,18 +100,18 @@ export const FileNode = ({ data }: NodeProps) => {
 
     if (matches && matches.length > 0) {
       const range = matches[0].range;
-      // 1. 选中
       editor.setSelection(range);
-      // 2. 滚动并居中显示
       editor.revealRangeInCenter(range);
     }
   };
+
 
   const handleToggle = async () => {
     if (!expanded && code === '// Loading...') {
       setLoading(true)
       try {
-        const content = await window.api.readFile(data.fullPath)
+        // data.id 作为文件路径
+        const content = await window.api.readFile(data.id)
         setCode(content)
       } catch (err) {
         setCode('Error loading file.')
@@ -169,16 +129,18 @@ export const FileNode = ({ data }: NodeProps) => {
     setErrorMsg(null)
 
     try {
-      const resultString = await window.api.summarize(code)
+      // 🚨 关键：传入对象 { code, filePath }，filePath 用于后端缓存 Key
+      const resultString = await window.api.summarize({
+        code: code,
+        filePath: data.id
+      })
 
-      // 🚨 关键：解析 JSON
       const parsed = JSON.parse(resultString) as AIAnalysisResult;
 
       if (parsed.overview || (parsed.symbols && parsed.symbols.length > 0)) {
          setAnalysis(parsed);
          setErrorMsg(null);
       } else {
-         // 处理 AI 构造错误 JSON 的情况
          setErrorMsg(parsed.overview || "AI 返回的结构化数据无效或内容为空。")
       }
     } catch (error) {
@@ -230,7 +192,7 @@ export const FileNode = ({ data }: NodeProps) => {
           {/* 主体区域：左边编辑器，右边大纲 (如果已分析) */}
           <div style={{ display: 'flex', height: '500px' }}>
             {/* 左侧：代码编辑器 */}
-            <div style={{ flex: 1, borderRight: (analysis && analysis.symbols && analysis.symbols.length > 0) ? '1px solid #444' : 'none' }}>
+            <div style={{ flex: 1, borderRight: (analysis?.symbols?.length) ? '1px solid #444' : 'none' }}>
                {loading ? <div style={{ padding: 20 }}>Reading file...</div> : (
                  <Editor
                     height="100%" theme="vs-dark" value={code}
@@ -242,7 +204,7 @@ export const FileNode = ({ data }: NodeProps) => {
             </div>
 
             {/* 右侧：智能大纲面板 (仅当有结构化结果时显示) */}
-            {analysis && analysis.symbols && analysis.symbols.length > 0 && (
+            {analysis?.symbols?.length > 0 && (
               <div style={{ width: '250px', background: '#252526', overflowY: 'auto', padding: '10px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#aaa', marginBottom: '10px' }}>
                   STRUCTURE
@@ -270,7 +232,7 @@ export const FileNode = ({ data }: NodeProps) => {
             )}
           </div>
 
-          {/* 底部：升级后的 AI 面板 */}
+          {/* 底部：AI 面板 (展示深度画像) */}
           <div style={{ padding: '12px', borderTop: '1px solid #444', background: '#252526', borderRadius: '0 0 6px 6px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontWeight: 'bold', color: '#aaa', fontSize: '12px' }}>AI INSIGHTS</span>
