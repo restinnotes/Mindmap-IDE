@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: mindmap-ide
+appId: com.logichorizon.desktop # 🚨 修改点 1: 唯一应用 ID
+productName: Logic Horizon      # 🚨 修改点 2: 最终显示的应用名称
 directories:
   buildResources: build
 files:
@@ -12,8 +12,10 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: mindmap-ide
+  # 🚨 修改点 3: Windows 下的可执行文件名称
+  executableName: Logic Horizon
 nsis:
+  # `${name}` 会从 package.json 中获取 'logic-horizon'
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}

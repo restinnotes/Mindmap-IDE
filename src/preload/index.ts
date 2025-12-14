@@ -4,7 +4,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 // 自定义 API
 const api = {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
-  readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path)
+  readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  // 🚨 新增接口：用于调用 AI 总结
+  summarize: (code: string) => ipcRenderer.invoke('ai:summarize', code)
 }
 
 if (process.contextIsolated) {

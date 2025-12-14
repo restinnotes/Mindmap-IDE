@@ -22,19 +22,21 @@ export const FolderNode = ({ data }: NodeProps) => {
   )
 }
 
-// === 2. 文件节点 (核心交互组件 - 修复 nodrag 和 zIndex) ===
+// === 2. 文件节点 (集成 AI 总结逻辑) ===
 export const FileNode = ({ data }: NodeProps) => {
   const [expanded, setExpanded] = useState(false)
   const [code, setCode] = useState('// Loading...')
   const [loading, setLoading] = useState(false)
 
+  // 🚨 新增 AI 状态：存储总结结果和加载状态
+  const [summary, setSummary] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+
   // 处理节点展开/折叠的逻辑
   const handleToggle = async () => {
-    // 如果是展开操作，且代码还没加载过，则从主进程读取文件内容
     if (!expanded && code === '// Loading...') {
       setLoading(true)
       try {
-        // 调用我们之前在 preload 里写的 window.api.readFile
         const content = await window.api.readFile(data.fullPath)
         setCode(content)
       } catch (err) {
@@ -45,9 +47,25 @@ export const FileNode = ({ data }: NodeProps) => {
     setExpanded(!expanded)
   }
 
+  // 🚨 新增：调用 AI 总结的函数
+  const handleSummarize = async () => {
+    // 检查代码是否已加载且内容有效，并防止重复点击
+    if (!code || code.length < 10 || aiLoading) return
+
+    setAiLoading(true)
+    setSummary(null) // 清空旧总结
+    try {
+      // 调用我们在 preload 中暴露的 IPC 处理器
+      const result = await window.api.summarize(code)
+      setSummary(result)
+    } catch (error) {
+      setSummary("AI 响应失败，请检查网络或 Key。")
+    }
+    setAiLoading(false)
+  }
+
   return (
     <div
-      // 🚨 修复点 1：移除 className="nodrag"，让用户可以拖动节点头部
       style={{
         border: expanded ? '2px solid #646cff' : '1px solid #777',
         borderRadius: '8px',
@@ -56,13 +74,12 @@ export const FileNode = ({ data }: NodeProps) => {
         minWidth: expanded ? '600px' : '200px', // 展开变宽
         transition: 'all 0.3s ease',
         boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
-        // 🚨 修复点 2：动态 zIndex，确保展开的节点浮在顶部
-        zIndex: expanded ? 1000 : undefined
+        zIndex: expanded ? 1000 : undefined // 动态 zIndex 修复遮挡
       }}
     >
       <Handle type="target" position={Position.Left} style={{ top: 20 }} />
 
-      {/* 头部标题栏 - 点击展开。由于外层移除了 nodrag，这里可以拖动节点。 */}
+      {/* 头部标题栏 */}
       <div
         onClick={handleToggle}
         style={{
@@ -95,8 +112,7 @@ export const FileNode = ({ data }: NodeProps) => {
 
       {/* 展开区域：代码编辑器 + AI 按钮 */}
       {expanded && (
-        // 🚨 修复点 3：将 className="nodrag" 移到这里，阻止在编辑器内进行拖拽操作
-        <div className="nodrag">
+        <div className="nodrag"> {/* 阻止在编辑器内拖拽 */}
           <div style={{ height: '400px', position: 'relative' }}>
              {loading ? (
                 <div style={{ padding: 20 }}>Reading file...</div>
@@ -106,7 +122,6 @@ export const FileNode = ({ data }: NodeProps) => {
                   defaultLanguage={data.label.endsWith('json') ? 'json' : 'typescript'} // 简单判断下语言
                   theme="vs-dark"
                   value={code}
-                  // Monaco Editor 的配置，防止它干扰 React Flow 的缩放
                   options={{
                     minimap: { enabled: false },
                     fontSize: 13,
@@ -117,26 +132,49 @@ export const FileNode = ({ data }: NodeProps) => {
              )}
           </div>
 
-          {/* AI 总结功能区 (MVP 阶段，点击只是弹窗提示) */}
+          {/* 🚨 AI 总结功能区 (核心) */}
           <div style={{
             padding: '12px',
             borderTop: '1px solid #444',
             background: '#252526',
             borderRadius: '0 0 6px 6px',
-            textAlign: 'right'
           }}>
-            <button style={{
-              background: 'linear-gradient(to right, #646cff, #9f5afd)',
-              color: 'white',
-              border: 'none',
-              padding: '8px 16px',
-              borderRadius: '4px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-            }} onClick={() => alert("AI Summarize logic goes here!")}>
-              ✨ AI Summarize
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 'bold', color: '#aaa', fontSize: '12px' }}>AI INSIGHTS</span>
+                <button
+                  onClick={handleSummarize} // 绑定新的处理函数
+                  disabled={aiLoading} // 禁用防止多次提交
+                  style={{
+                    background: aiLoading ? '#555' : 'linear-gradient(to right, #646cff, #9f5afd)',
+                    color: 'white',
+                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontWeight: 'bold',
+                    cursor: aiLoading ? 'default' : 'pointer',
+                    opacity: aiLoading ? 0.7 : 1
+                  }}
+                >
+                  {aiLoading ? '✨ Thinking...' : '✨ AI Summarize'} {/* 根据状态显示文本 */}
+                </button>
+            </div>
+
+            {/* 🚨 总结结果显示区域 */}
+            {summary && (
+              <div style={{
+                marginTop: '10px',
+                padding: '10px',
+                background: '#333',
+                borderRadius: '4px',
+                fontSize: '13px',
+                lineHeight: '1.6',
+                color: '#e0e0e0',
+                borderLeft: '3px solid #9f5afd', // 紫色左边框
+                whiteSpace: 'pre-wrap' // 保持 LLM 的换行格式
+              }}>
+                {summary}
+              </div>
+            )}
           </div>
         </div>
       )}

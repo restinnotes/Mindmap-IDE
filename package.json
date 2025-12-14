@@ -1,7 +1,7 @@
 {
-  "name": "logic-ide",
+  "name": "logic-horizon",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "Logic Horizon: Visualizing the Logic of Code",
   "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://www.electronjs.org",
@@ -25,8 +25,10 @@
     "@electron-toolkit/utils": "^3.0.0",
     "@monaco-editor/react": "^4.6.0",
     "dagre": "^0.8.5",
+    "dotenv": "^17.2.3",
     "electron-updater": "^6.1.7",
     "monaco-editor": "^0.55.1",
+    "openai": "^6.10.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "reactflow": "^11.11.4"
