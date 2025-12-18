@@ -27,6 +27,7 @@
     "dagre": "^0.8.5",
     "dotenv": "^17.2.3",
     "electron-updater": "^6.1.7",
+    "mermaid": "^11.12.2",
     "monaco-editor": "^0.55.1",
     "openai": "^6.10.0",
     "react": "^18.3.1",
